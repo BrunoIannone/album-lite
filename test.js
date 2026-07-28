@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { TEMPLATES, pickTemplate, autoFlow, slotAspect, flowSpreads } = require('./layout.js');
+const { TEMPLATES, pickTemplate, autoFlow, slotAspect, flowSpreads, coverFit, fitDPI, MIN_DPI } = require('./layout.js');
 
 const PAGE = { w: 12, h: 12 };
 const W = PAGE.w * 2;
@@ -69,8 +69,49 @@ test('flowSpreads keeps photo order and picks a real template for each spread', 
     'photos must stay in import order across spreads');
   for (const s of spreads) {
     assert.ok(TEMPLATES[s.items.length][s.tpl], 'tpl must index a real template');
-    s.items.forEach((i) => assert.deepStrictEqual(i.pos, [50, 50]));
+    s.items.forEach((i) => {
+      assert.deepStrictEqual(i.pos, [50, 50]);
+      assert.strictEqual(i.zoom, 1);
+    });
   }
+});
+
+test('coverFit always covers the slot, never over-covers, and keeps the photo undistorted', () => {
+  const slots = [[12, 12], [24, 12], [10, 7], [8.5, 11], [4, 9]];
+  const aspects = [0.4, 0.67, 1, 1.5, 2, 3.5];
+  for (const [sw, sh] of slots) {
+    for (const a of aspects) {
+      const { fw, fh } = coverFit(a, sw / sh);
+      assert.ok(fw >= 1 && fh >= 1, 'a gap would show if either axis shrank');
+      assert.ok(Math.abs(Math.min(fw, fh) - 1) < 1e-9, 'one axis must sit flush, or it is over-covered');
+      assert.ok(Math.abs((sw * fw) / (sh * fh) - a) < 1e-9, 'grown box must keep the photo aspect');
+    }
+  }
+});
+
+test('a zoomed photo never exposes a gap at either extreme of the pan range', () => {
+  // pos is a share of the overflow, so the offsets it produces must stay within it.
+  for (const zoom of [1, 1.5, 4]) {
+    const { fw, fh } = coverFit(1.5, 24 / 12);
+    const [zw, zh] = [fw * zoom, fh * zoom];
+    for (const pos of [0, 50, 100]) {
+      const left = -(zw - 1) * pos;
+      const top = -(zh - 1) * pos;
+      assert.ok(left <= 1e-9 && left >= -(zw - 1) * 100 - 1e-9, 'left edge escaped the slot');
+      assert.ok(top <= 1e-9 && top >= -(zh - 1) * 100 - 1e-9, 'top edge escaped the slot');
+      assert.ok(left / 100 + zw >= 1 - 1e-9, 'right edge left a gap');
+      assert.ok(top / 100 + zh >= 1 - 1e-9, 'bottom edge left a gap');
+    }
+  }
+});
+
+test('fitDPI reports print resolution and falls as the user zooms in', () => {
+  // A 6000px-wide photo filling a 12in-wide slot exactly.
+  assert.strictEqual(fitDPI(6000, 12, 1, 1), 500);
+  assert.strictEqual(fitDPI(6000, 12, 1, 2), 250);
+  assert.ok(fitDPI(6000, 12, 1, 4) < MIN_DPI, 'zooming 4x past a full-width fit should trip the warning');
+  // Cropping to a slot narrower than the photo also costs resolution.
+  assert.strictEqual(fitDPI(6000, 12, 2, 1), 250);
 });
 
 test('autoFlow chunks by size and isolates panoramas', () => {

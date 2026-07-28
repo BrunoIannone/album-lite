@@ -64,8 +64,21 @@ const TEMPLATES = {
 };
 
 const MAX_PER_SPREAD = 6;
+const MIN_DPI = 150;
+const MAX_ZOOM = 8;
 
 const slotAspect = (rect, W, H) => (rect.w * W) / (rect.h * H);
+
+/* Multipliers (>= 1) that grow a slot-sized box until an image of this aspect covers it.
+   The grown box has exactly the image's aspect, so one multiplier is always 1. */
+function coverFit(imgAspect, slotAspect) {
+  return { fw: Math.max(1, imgAspect / slotAspect), fh: Math.max(1, slotAspect / imgAspect) };
+}
+
+/** Print resolution once a photo is fitted and zoomed into a slot, in dots per inch. */
+function fitDPI(pxWide, slotWidthIn, fitW, zoom) {
+  return pxWide / (slotWidthIn * fitW * zoom);
+}
 
 /* Cost = how badly slot shapes disagree with the photos that will land in them,
    in reading order. Log-ratio so 2:1 too wide costs the same as 2:1 too tall. */
@@ -119,10 +132,11 @@ function autoFlow(photos, perSpread) {
 function flowSpreads(photos, perSpread, W, H) {
   return autoFlow(photos, perSpread).map((group) => ({
     tpl: pickTemplate(group.map((p) => p.aspect), W, H),
-    items: group.map((p) => ({ pid: p.id, pos: [50, 50] })),
+    items: group.map((p) => ({ pid: p.id, pos: [50, 50], zoom: 1 })),
   }));
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { PAGE_SIZES, TEMPLATES, MAX_PER_SPREAD, slotAspect, layoutCost, pickTemplate, autoFlow, flowSpreads };
+  module.exports = { PAGE_SIZES, TEMPLATES, MAX_PER_SPREAD, MIN_DPI, MAX_ZOOM,
+    slotAspect, layoutCost, pickTemplate, autoFlow, flowSpreads, coverFit, fitDPI };
 }

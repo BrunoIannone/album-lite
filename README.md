@@ -3,7 +3,7 @@
 A small photo album designer: import photos, get spreads laid out automatically,
 tweak them, export a print-ready PDF.
 
-![toolbar, photo tray and two auto-laid-out spreads](docs/screenshot.png)
+![toolbar, photo tray and auto-laid-out spreads, one photo zoomed to 240%](docs/screenshot.png)
 
 ## Use it
 
@@ -42,11 +42,32 @@ npm start
   spread picks the template whose slot shapes best match the photos landing in them.
   Photos fill slots in reading order, so chronology survives.
 - **Tweak** — drag a thumbnail onto a slot to replace it, drag the `⠿` handle to swap two
-  slots, drag inside a photo to re-frame the crop, double-click to recentre, `◀ ▶` to cycle
-  layouts, `Best fit` to re-pick. Importing more photos appends new spreads and leaves your
-  existing arrangement alone; `Auto-layout` is the one that starts over.
+  slots, `◀ ▶` to cycle layouts, `Best fit` to re-pick. Importing more photos appends new
+  spreads and leaves your existing arrangement alone; `Auto-layout` is the one that starts over.
+- **Zoom & crop** — see below.
 - **Export** — one PDF, one page per spread, sized `spread + bleed`. Source JPEGs embed
   losslessly at full resolution, so a 24 MP photo in a 12×8 in slot prints at ~500 DPI.
+
+### Zoom and crop
+
+Hover a photo for `− 100% +`. Zoom in and drag the photo to choose what the slot shows.
+
+| | |
+|---|---|
+| `−` / `+` | Zoom out / in, 100–800% |
+| Ctrl + scroll, or trackpad pinch | Zoom smoothly |
+| Drag the photo | Pan the crop, both axes once zoomed |
+| Double-click | Back to 100%, centred |
+
+The crop is always the slot's shape — the slot decides the aspect ratio, you decide which
+part of the photo fills it. At 100% the photo covers the slot exactly, so there's never a
+gap to pan into. Framing belongs to the photo, so swapping two slots carries it along.
+
+Zooming costs no quality: the crop is done by the PDF, not by resampling, so the original
+JPEG still goes in untouched. It does spend resolution, though — a red **DPI** badge appears
+when a photo would print below 150 DPI at its current zoom, and export asks before letting
+those through. Zoom out or move that photo to a smaller slot.
+
 
 ### Saving
 
@@ -80,7 +101,7 @@ places — file paths and export. Everything else is one code path.
 node --test        # or: npm test
 ```
 
-Seven checks, no framework, nothing to install. `layout.js` is the only file with real
+Ten checks, no framework, nothing to install. `layout.js` is the only file with real
 logic, so it's the only file with tests — they caught two genuine bugs (a missing
 landscape-leaning 5-up template, and a 6-up set with no portrait option). Keep that bar: if
 you add templates, the existing no-overlap and "portrait sets choose narrower slots than
@@ -106,7 +127,14 @@ that photos went in as untouched JPEG streams rather than re-encoded bitmaps:
 node -e "const b=require('fs').readFileSync('out.pdf').toString('latin1');const m=[...b.matchAll(/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/g)].map(x=>[(+x[3]-+x[1])/72,(+x[4]-+x[2])/72]);console.log(m.length,'pages',JSON.stringify([...new Set(m.map(String))]),(b.match(/DCTDecode/g)||[]).length,'jpegs')"
 ```
 
-Last run: **4 pages, all `24.25 x 12.25` in, 7 jpegs** for 7 photos at 12×12 with 0.125 in bleed.
+Last run: **3 pages, all `24.25 x 12.25` in, 4 jpegs** for 4 photos at 12×12 with 0.125 in
+bleed, one of them zoomed to 240% — still 4 untouched JPEG streams and zero re-encoded
+images, which is the property worth guarding.
+
+Two headless gotchas, both cost an hour: screenshots need
+`--run-all-compositor-stages-before-draw` or images come out blank, and images added by
+script *after* load don't rasterise under `--virtual-time-budget` at all. For screenshots,
+`--dump-dom` the running page, strip the `<script>` tags, and screenshot that instead.
 
 ## Settings
 
@@ -119,7 +147,7 @@ Last run: **4 pages, all `24.25 x 12.25` in, 7 jpegs** for 7 photos at 12×12 wi
 
 ## Deliberately not built
 
-Cover and spine design, text and captions, per-photo zoom, colour correction, crop marks,
+Cover and spine design, text and captions, colour correction, crop marks, free-aspect crop,
 face detection, cloud sync, undo history, `.album` project files, installers. Add whichever
 one you actually miss after using it.
 

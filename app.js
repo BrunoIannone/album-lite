@@ -28,19 +28,21 @@ const label = (p) => p.key.split('|')[0].split(/[\\/]/).pop();
 /* --- geometry ------------------------------------------------------------ */
 
 // Slot rect (fractions of trim) -> inches on the sheet. Slots touching a trim edge
-// are pushed out into the bleed so nothing shows white after the lab trims.
+// are pushed out into the bleed so nothing shows white after the lab trims; the gutter
+// is subtracted from the geometry rather than applied as padding, so a slot's box is
+// exactly the area the photo fills.
 function slotBox(rect) {
   const { W, H } = spreadSize();
   const b = state.bleed;
   const L = rect.x <= 0.001, T = rect.y <= 0.001;
   const R = rect.x + rect.w >= 0.999, B = rect.y + rect.h >= 0.999;
   const g = state.gutter / 2;
+  const [pt, pr, pb, pl] = [T ? 0 : g, R ? 0 : g, B ? 0 : g, L ? 0 : g];
   return {
-    left: b + rect.x * W - (L ? b : 0),
-    top: b + rect.y * H - (T ? b : 0),
-    width: rect.w * W + (L ? b : 0) + (R ? b : 0),
-    height: rect.h * H + (T ? b : 0) + (B ? b : 0),
-    pad: [T ? 0 : g, R ? 0 : g, B ? 0 : g, L ? 0 : g],
+    left: b + rect.x * W - (L ? b : 0) + pl,
+    top: b + rect.y * H - (T ? b : 0) + pt,
+    width: rect.w * W + (L ? b : 0) + (R ? b : 0) - pl - pr,
+    height: rect.h * H + (T ? b : 0) + (B ? b : 0) - pt - pb,
   };
 }
 
@@ -100,6 +102,7 @@ function render() {
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
     sheet.style.cssText = `width:${SW}in;height:${SH}in;zoom:${zoom}`;
+    sheet.style.setProperty('--z', zoom);
     templateOf(sp).forEach((rect, ii) => sheet.append(slotEl(sp, si, ii, rect)));
 
     wrap.append(head, sheet);
@@ -122,22 +125,8 @@ function slotEl(sp, si, ii, rect) {
   const box = slotBox(rect);
   const el = document.createElement('div');
   el.className = 'slot';
-  el.style.cssText = `left:${box.left}in;top:${box.top}in;width:${box.width}in;height:${box.height}in;` +
-    `padding:${box.pad.map((v) => v + 'in').join(' ')}`;
-
-  if (p?.url) {
-    const img = new Image();
-    img.src = p.url;
-    img.alt = '';
-    img.draggable = false;
-    img.style.objectPosition = `${item.pos[0]}% ${item.pos[1]}%`;
-    img.onpointerdown = (e) => startPan(e, img, item);
-    img.ondblclick = () => { item.pos = [50, 50]; commit(); };
-    el.append(img);
-  } else if (p) {
-    el.classList.add('empty');
-    el.append(Object.assign(document.createElement('span'), { textContent: label(p) }));
-  }
+  el.style.cssText =
+    `left:${box.left}in;top:${box.top}in;width:${box.width}in;height:${box.height}in`;
 
   const ui = document.createElement('div');
   ui.className = 'slot-ui no-print';
@@ -145,7 +134,70 @@ function slotEl(sp, si, ii, rect) {
   grab.className = 'grab';
   grab.draggable = true;
   grab.ondragstart = (e) => e.dataTransfer.setData('text/plain', `s:${si}:${ii}`);
-  ui.append(grab, btn('✕', 'Remove photo from this slot', () => {
+
+  if (p?.url) {
+    const img = new Image();
+    img.src = p.url;
+    img.alt = '';
+    img.draggable = false;
+
+    const warn = document.createElement('div');
+    warn.className = 'dpi no-print';
+    const readout = document.createElement('span');
+    readout.className = 'zoom-read';
+
+    // Size the photo to its cover box, then slide it by the share of the overflow the
+    // user has panned to. pos 0..100 keeps the meaning object-position had, and at
+    // zoom 1 an axis with no overflow simply can't move — no gaps, no clamping needed.
+    const paint = () => {
+      const { fw, fh } = coverFit(p.aspect, box.width / box.height);
+      const [zw, zh] = [fw * item.zoom, fh * item.zoom];
+      img.style.width = `${zw * 100}%`;
+      img.style.height = `${zh * 100}%`;
+      img.style.left = `${-(zw - 1) * item.pos[0]}%`;
+      img.style.top = `${-(zh - 1) * item.pos[1]}%`;
+
+      const dpi = p.w ? fitDPI(p.w, box.width, fw, item.zoom) : null;
+      warn.hidden = !(dpi && dpi < MIN_DPI);
+      warn.textContent = dpi ? `${Math.round(dpi)} DPI` : '';
+      warn.title = `Prints at about ${Math.round(dpi)} DPI — below ${MIN_DPI} looks soft. ` +
+        `Zoom out, or use this photo in a smaller slot.`;
+      readout.textContent = `${Math.round(item.zoom * 100)}%`;
+      readout.title = 'Zoom. Double-click the photo to reset it.';
+    };
+
+    const zoomBy = (factor) => {
+      item.zoom = Math.min(MAX_ZOOM, Math.max(1, item.zoom * factor));
+      paint();
+      saveSoon();
+    };
+
+    img.onpointerdown = (e) => startPan(e, img, item, paint);
+    img.ondblclick = () => { item.pos = [50, 50]; item.zoom = 1; paint(); save(); };
+    // Ctrl+wheel is also what a trackpad pinch reports, so pinch-to-zoom works for free.
+    el.onwheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      zoomBy(Math.exp(-e.deltaY / 300));
+    };
+
+    ui.append(
+      btn('−', 'Zoom out', () => zoomBy(1 / 1.25)),
+      readout,
+      btn('+', 'Zoom in (or hold Ctrl and scroll)', () => zoomBy(1.25)),
+      grab,
+    );
+    el.append(img, warn);
+    paint();
+  } else if (p) {
+    el.classList.add('empty');
+    el.append(Object.assign(document.createElement('span'), { textContent: label(p) }));
+    ui.append(grab);
+  } else {
+    ui.append(grab);
+  }
+
+  ui.append(btn('✕', 'Remove photo from this slot', () => {
     sp.items.splice(ii, 1);
     if (!sp.items.length) state.spreads.splice(si, 1);
     else refit(sp);
@@ -160,29 +212,34 @@ function slotEl(sp, si, ii, rect) {
     el.classList.remove('over');
     const [kind, a, b] = e.dataTransfer.getData('text/plain').split(':');
     if (kind === 'p') {
-      item.pid = a;
-      item.pos = [50, 50];
+      Object.assign(item, { pid: a, pos: [50, 50], zoom: 1 });
     } else {
+      // Framing belongs to the photo, so it travels with it.
       const other = state.spreads[+a].items[+b];
       [item.pid, other.pid] = [other.pid, item.pid];
       [item.pos, other.pos] = [other.pos, item.pos];
+      [item.zoom, other.zoom] = [other.zoom, item.zoom];
     }
     commit();
   };
   return el;
 }
 
-// Drag inside a slot to re-frame the crop.
-function startPan(e, img, item) {
+// Drag inside a slot to re-frame the crop. Overflow is read off the rendered geometry
+// rather than recomputed, so panning stays correct at any zoom or preview scale.
+function startPan(e, img, item, paint) {
   e.preventDefault();
   img.setPointerCapture(e.pointerId);
-  const rect = img.getBoundingClientRect();
+  const over = img.getBoundingClientRect();
+  const slot = img.parentElement.getBoundingClientRect();
+  const [ovx, ovy] = [over.width - slot.width, over.height - slot.height];
   const start = { x: e.clientX, y: e.clientY, pos: [...item.pos] };
   const move = (ev) => {
-    const dx = ((ev.clientX - start.x) / rect.width) * 100;
-    const dy = ((ev.clientY - start.y) / rect.height) * 100;
-    item.pos = [clamp(start.pos[0] - dx), clamp(start.pos[1] - dy)];
-    img.style.objectPosition = `${item.pos[0]}% ${item.pos[1]}%`;
+    item.pos = [
+      ovx > 0.5 ? clamp(start.pos[0] - ((ev.clientX - start.x) / ovx) * 100) : item.pos[0],
+      ovy > 0.5 ? clamp(start.pos[1] - ((ev.clientY - start.y) / ovy) * 100) : item.pos[1],
+    ];
+    paint();
   };
   const up = () => {
     img.removeEventListener('pointermove', move);
@@ -197,12 +254,17 @@ const clamp = (v) => Math.max(0, Math.min(100, v));
 const commit = () => { render(); save(); };
 const status = (msg) => { $('#status').textContent = msg; };
 
+// Zooming fires far faster than it's worth serialising the album for.
+let saveTimer;
+const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); };
+
 /* --- import & persistence ------------------------------------------------ */
 
-const aspectOf = (url) => new Promise((res) => {
+// Natural pixel size decides print resolution once a photo is zoomed, so keep it.
+const measure = (url) => new Promise((res) => {
   const im = new Image();
-  im.onload = () => res(im.naturalWidth / im.naturalHeight || 1);
-  im.onerror = () => res(1);
+  im.onload = () => res({ aspect: im.naturalWidth / im.naturalHeight || 1, w: im.naturalWidth, h: im.naturalHeight });
+  im.onerror = () => res({ aspect: 1, w: 0, h: 0 });
   im.src = url;
 });
 
@@ -217,11 +279,11 @@ async function addFiles(files) {
     const held = state.photos.find((p) => p.key === key);
     if (held?.url) continue;
     const url = IS_APP ? api.urlForPath(key) : URL.createObjectURL(f);
-    const aspect = await aspectOf(url);
+    const dims = await measure(url);
     if (held) {
-      Object.assign(held, { url, aspect });
+      Object.assign(held, { url, ...dims });
     } else {
-      const p = { id: uid(), key, url, aspect };
+      const p = { id: uid(), key, url, ...dims };
       state.photos.push(p);
       fresh.push(p);
     }
@@ -242,7 +304,7 @@ function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
       size, bleed, gutter, perSpread, spreads,
-      photos: state.photos.map(({ id, key, aspect }) => ({ id, key, aspect })),
+      photos: state.photos.map(({ id, key, aspect, w, h }) => ({ id, key, aspect, w, h })),
     }));
   } catch { /* ponytail: no storage (or quota hit) just means no autosave. */ }
 }
@@ -255,6 +317,7 @@ function restore() {
     // Electron knows the real paths, so it reloads photos outright; a browser page
     // only holds blob URLs that died with the last session, so it waits for a re-import.
     state.photos = saved.photos.map((p) => ({ ...p, url: IS_APP ? api.urlForPath(p.key) : null }));
+    state.spreads.forEach((s) => s.items.forEach((i) => { i.zoom ??= 1; }));
   } catch {
     try { localStorage.removeItem(STORE); } catch { /* ignore */ }
   }
@@ -298,8 +361,34 @@ function initControls() {
   });
 }
 
+/** Photos that would print soft at their current crop, as [label, dpi] pairs. */
+function lowRes() {
+  const out = [];
+  for (const sp of state.spreads) {
+    templateOf(sp).forEach((rect, ii) => {
+      const p = photo(sp.items[ii]?.pid);
+      if (!p?.w) return;
+      const box = slotBox(rect);
+      const { fw } = coverFit(p.aspect, box.width / box.height);
+      const dpi = fitDPI(p.w, box.width, fw, sp.items[ii].zoom);
+      if (dpi < MIN_DPI) out.push([label(p), Math.round(dpi)]);
+    });
+  }
+  return out;
+}
+
 async function exportPDF() {
   if (!state.spreads.length) return status('Nothing to export.');
+
+  const soft = lowRes();
+  if (soft.length && !confirm(
+    `${soft.length} photo${soft.length > 1 ? 's' : ''} will print below ${MIN_DPI} DPI and may look soft:\n\n` +
+    soft.slice(0, 8).map(([n, d]) => `  ${n} — ${d} DPI`).join('\n') +
+    (soft.length > 8 ? `\n  …and ${soft.length - 8} more` : '') +
+    '\n\nZoom those out, or export anyway?')) {
+    return status(`Export cancelled — ${soft.length} photo(s) below ${MIN_DPI} DPI.`);
+  }
+
   status('Decoding images at full resolution…');
   await Promise.all([...document.querySelectorAll('.sheet img')].map((i) => i.decode().catch(() => {})));
   const { SW, SH } = sheetSize();
