@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { TEMPLATES, pickTemplate, autoFlow, slotAspect } = require('./layout.js');
+const { TEMPLATES, pickTemplate, autoFlow, slotAspect, flowSpreads } = require('./layout.js');
 
 const PAGE = { w: 12, h: 12 };
 const W = PAGE.w * 2;
@@ -54,6 +54,22 @@ test('portrait sets always choose narrower slots than landscape sets', () => {
     const tall = mean(TEMPLATES[n][pickTemplate(Array(n).fill(0.67), W, H)]);
     const wide = mean(TEMPLATES[n][pickTemplate(Array(n).fill(1.5), W, H)]);
     assert.ok(tall < wide, `n=${n}: portrait pick (${tall}) not narrower than landscape pick (${wide})`);
+  }
+});
+
+test('flowSpreads keeps photo order and picks a real template for each spread', () => {
+  const photos = [
+    { id: 'a', aspect: 1.5 }, { id: 'b', aspect: 0.67 }, { id: 'c', aspect: 3.5 },
+    { id: 'd', aspect: 1 }, { id: 'e', aspect: 1 },
+  ];
+  const spreads = flowSpreads(photos, 2, W, H);
+  assert.deepStrictEqual(
+    spreads.flatMap((s) => s.items.map((i) => i.pid)),
+    ['a', 'b', 'c', 'd', 'e'],
+    'photos must stay in import order across spreads');
+  for (const s of spreads) {
+    assert.ok(TEMPLATES[s.items.length][s.tpl], 'tpl must index a real template');
+    s.items.forEach((i) => assert.deepStrictEqual(i.pos, [50, 50]));
   }
 });
 

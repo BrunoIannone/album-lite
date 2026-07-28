@@ -115,6 +115,14 @@ function autoFlow(photos, perSpread) {
   return spreads;
 }
 
+/** Chunk photos into spreads, each with the best-fitting template. */
+function flowSpreads(photos, perSpread, W, H) {
+  return autoFlow(photos, perSpread).map((group) => ({
+    tpl: pickTemplate(group.map((p) => p.aspect), W, H),
+    items: group.map((p) => ({ pid: p.id, pos: [50, 50] })),
+  }));
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { PAGE_SIZES, TEMPLATES, MAX_PER_SPREAD, slotAspect, layoutCost, pickTemplate, autoFlow };
+  module.exports = { PAGE_SIZES, TEMPLATES, MAX_PER_SPREAD, slotAspect, layoutCost, pickTemplate, autoFlow, flowSpreads };
 }

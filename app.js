@@ -2,12 +2,17 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const STORE = 'album-lite/v1';
 
+// The Electron shell is optional. Without it this page runs straight from file://,
+// trading real file paths for blob URLs and the save dialog for the browser's print dialog.
+const api = window.api ?? null;
+const IS_APP = !!api;
+
 const state = {
   size: 2,
   bleed: 0.125,
   gutter: 0.15,
   perSpread: 4,
-  photos: [],   // { id, path, url, aspect }
+  photos: [],   // { id, key, url, aspect } — url null means "saved album, file not re-imported yet"
   spreads: [],  // { tpl, items: [{ pid, pos: [x%, y%] }] }
 };
 
@@ -18,6 +23,7 @@ const sheetSize = () => {
   const { W, H } = spreadSize();
   return { SW: W + state.bleed * 2, SH: H + state.bleed * 2 };
 };
+const label = (p) => p.key.split('|')[0].split(/[\\/]/).pop();
 
 /* --- geometry ------------------------------------------------------------ */
 
@@ -45,14 +51,6 @@ function refit(spread) {
   spread.tpl = pickTemplate(spread.items.map((it) => photo(it.pid)?.aspect ?? 1), W, H);
 }
 
-function rebuild() {
-  const { W, H } = spreadSize();
-  state.spreads = autoFlow(state.photos, state.perSpread).map((group) => {
-    const items = group.map((p) => ({ pid: p.id, pos: [50, 50] }));
-    return { tpl: pickTemplate(group.map((p) => p.aspect), W, H), items };
-  });
-}
-
 /* --- render -------------------------------------------------------------- */
 
 function render() {
@@ -60,20 +58,26 @@ function render() {
   $('#pagerule').textContent = `@page { size: ${SW}in ${SH}in; margin: 0 }`;
 
   const used = new Set(state.spreads.flatMap((s) => s.items.map((i) => i.pid)));
+  const missing = state.photos.filter((p) => !p.url).length;
   $('#trayEmpty').hidden = state.photos.length > 0;
   $('#thumbs').replaceChildren(...state.photos.map((p) => {
     const d = document.createElement('div');
-    d.className = 'thumb' + (used.has(p.id) ? '' : ' unused');
-    d.draggable = true;
-    d.title = p.path;
+    d.className = 'thumb' + (used.has(p.id) ? '' : ' unused') + (p.url ? '' : ' missing');
+    d.draggable = !!p.url;
+    d.title = p.url ? p.key : `${label(p)} — re-import this file to restore it`;
     d.ondragstart = (e) => e.dataTransfer.setData('text/plain', `p:${p.id}`);
-    const img = new Image();
-    img.src = p.url;
-    img.loading = 'lazy';
-    img.alt = '';
-    d.append(img);
+    if (p.url) {
+      const img = new Image();
+      img.src = p.url;
+      img.loading = 'lazy';
+      img.alt = '';
+      d.append(img);
+    } else {
+      d.textContent = label(p);
+    }
     return d;
   }));
+  if (missing) status(`${missing} photo${missing > 1 ? 's' : ''} missing — re-import to restore this album.`);
 
   // ponytail: full re-render on every change. Virtualize if albums pass ~300 photos.
   const zoom = Math.min(1, ($('#sheets').clientWidth - 44) / (SW * 96));
@@ -121,7 +125,7 @@ function slotEl(sp, si, ii, rect) {
   el.style.cssText = `left:${box.left}in;top:${box.top}in;width:${box.width}in;height:${box.height}in;` +
     `padding:${box.pad.map((v) => v + 'in').join(' ')}`;
 
-  if (p) {
+  if (p?.url) {
     const img = new Image();
     img.src = p.url;
     img.alt = '';
@@ -130,6 +134,9 @@ function slotEl(sp, si, ii, rect) {
     img.onpointerdown = (e) => startPan(e, img, item);
     img.ondblclick = () => { item.pos = [50, 50]; commit(); };
     el.append(img);
+  } else if (p) {
+    el.classList.add('empty');
+    el.append(Object.assign(document.createElement('span'), { textContent: label(p) }));
   }
 
   const ui = document.createElement('div');
@@ -199,15 +206,35 @@ const aspectOf = (url) => new Promise((res) => {
   im.src = url;
 });
 
+// A file already referenced by the restored album fills in its blank; anything else is new.
+// Same key twice is never two photos — drag a thumbnail onto a second slot to reuse one.
 async function addFiles(files) {
+  const { W, H } = spreadSize();
+  const fresh = [];
   for (const f of files) {
-    const path = api.pathForFile(f);
-    const url = api.urlForPath(path);
-    state.photos.push({ id: uid(), path, url, aspect: await aspectOf(url) });
+    if (!f.type.startsWith('image/')) continue;
+    const key = IS_APP ? api.pathForFile(f) : `${f.name}|${f.size}`;
+    const held = state.photos.find((p) => p.key === key);
+    if (held?.url) continue;
+    const url = IS_APP ? api.urlForPath(key) : URL.createObjectURL(f);
+    const aspect = await aspectOf(url);
+    if (held) {
+      Object.assign(held, { url, aspect });
+    } else {
+      const p = { id: uid(), key, url, aspect };
+      state.photos.push(p);
+      fresh.push(p);
+    }
   }
-  rebuild();
+  // Only new photos get new spreads; existing spreads keep whatever you arranged.
+  state.spreads.push(...flowSpreads(fresh, state.perSpread, W, H));
   commit();
   status(`${state.photos.length} photos, ${state.spreads.length} spreads`);
+}
+
+function rebuild() {
+  const { W, H } = spreadSize();
+  state.spreads = flowSpreads(state.photos, state.perSpread, W, H);
 }
 
 function save() {
@@ -215,7 +242,7 @@ function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
       size, bleed, gutter, perSpread, spreads,
-      photos: state.photos.map(({ id, path, aspect }) => ({ id, path, aspect })),
+      photos: state.photos.map(({ id, key, aspect }) => ({ id, key, aspect })),
     }));
   } catch { /* ponytail: no storage (or quota hit) just means no autosave. */ }
 }
@@ -225,7 +252,9 @@ function restore() {
     const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (!saved) return;
     Object.assign(state, saved);
-    state.photos = saved.photos.map((p) => ({ ...p, url: api.urlForPath(p.path) }));
+    // Electron knows the real paths, so it reloads photos outright; a browser page
+    // only holds blob URLs that died with the last session, so it waits for a re-import.
+    state.photos = saved.photos.map((p) => ({ ...p, url: IS_APP ? api.urlForPath(p.key) : null }));
   } catch {
     try { localStorage.removeItem(STORE); } catch { /* ignore */ }
   }
@@ -254,9 +283,11 @@ function initControls() {
   $('#auto').onclick = () => { rebuild(); commit(); };
   $('#clear').onclick = () => {
     if (!confirm('Remove all photos and spreads?')) return;
+    state.photos.forEach((p) => p.url?.startsWith('blob:') && URL.revokeObjectURL(p.url));
     state.photos = [];
     state.spreads = [];
     commit();
+    status('');
   };
   $('#export').onclick = exportPDF;
 
@@ -272,12 +303,14 @@ async function exportPDF() {
   status('Decoding images at full resolution…');
   await Promise.all([...document.querySelectorAll('.sheet img')].map((i) => i.decode().catch(() => {})));
   const { SW, SH } = sheetSize();
-  const saved = await api.exportPDF({
-    suggestedName: `album-${page().w}x${page().h}.pdf`,
-  });
-  status(saved
-    ? `Saved ${saved}  ·  ${state.spreads.length} spreads at ${SW}x${SH} in (incl. ${state.bleed} in bleed)`
-    : 'Export cancelled.');
+  const size = `${SW} x ${SH} in (incl. ${state.bleed} in bleed)`;
+
+  if (!IS_APP) {
+    status(`Choose "Save as PDF" — the preview should read ${size}.`);
+    return print();
+  }
+  const saved = await api.exportPDF({ suggestedName: `album-${page().w}x${page().h}.pdf` });
+  status(saved ? `Saved ${saved} · ${state.spreads.length} spreads at ${size}` : 'Export cancelled.');
 }
 
 restore();
