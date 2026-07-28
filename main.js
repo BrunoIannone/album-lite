@@ -11,7 +11,7 @@ app.whenReady().then(() => {
     backgroundColor: '#1b1d21',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  win.loadFile('album.html');
+  win.loadFile('index.html');
 });
 
 app.on('window-all-closed', () => app.quit());

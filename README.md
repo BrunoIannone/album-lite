@@ -5,11 +5,15 @@ tweak them, export a print-ready PDF.
 
 ![toolbar, photo tray and two auto-laid-out spreads](docs/screenshot.png)
 
-## Quick start — no installation
+## Use it
 
-Download the repo (**Code → Download ZIP**, or `git clone`), unzip, and **double-click
-`album.html`**. That's it. It's a plain page running from `file://` — no Node, no npm,
-no server, no build. Works in Chrome or Edge.
+**→ [prathiraj.github.io/album-lite](https://prathiraj.github.io/album-lite/)**
+
+Nothing to install and nothing is uploaded — photos are read straight off your disk by
+the browser and never leave it. Works offline once loaded.
+
+Prefer to keep a copy? Download the repo (**Code → Download ZIP**), unzip, and double-click
+`index.html` — it runs identically from `file://`. No Node, no npm, no server, no build.
 
 Export uses the browser's own print dialog: **Export PDF → Destination "Save as PDF"**.
 Check the preview page size matches the number in the status bar (e.g. `24.25 x 12.25 in`);
@@ -19,7 +23,6 @@ if it doesn't, set it under **More settings → Paper size**, and leave Margins 
 
 The same page also runs in an Electron shell, which adds a proper save dialog and real
 file paths (so a saved album reopens without re-importing).
-
 ```powershell
 npm install
 npm start
@@ -61,7 +64,7 @@ No canvas, no compositing, no image library, no dependencies.
 
 | File | |
 |---|---|
-| `album.html` | Markup. Double-click this. |
+| `index.html` | Markup. The page itself. |
 | `layout.js` | Page sizes, slot templates, and the fit heuristic. Pure functions, no DOM. |
 | `app.js` | State, rendering, drag interactions, import/export. |
 | `style.css` | Screen styles plus the `@media print` rules that make export work. |
@@ -93,7 +96,7 @@ way the dialog does:
 ```powershell
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new `
   --disable-gpu --no-pdf-header-footer --virtual-time-budget=20000 `
-  --print-to-pdf=out.pdf "file:///C:/path/to/album.html"
+  --print-to-pdf=out.pdf "file:///C:/path/to/index.html"
 ```
 
 Then check the result really is print-ready — page count, exact page size in inches, and
@@ -119,3 +122,8 @@ Last run: **4 pages, all `24.25 x 12.25` in, 7 jpegs** for 7 photos at 12×12 wi
 Cover and spine design, text and captions, per-photo zoom, colour correction, crop marks,
 face detection, cloud sync, undo history, `.album` project files, installers. Add whichever
 one you actually miss after using it.
+
+## Hosting
+
+GitHub Pages serves `main` at the repository root — there is no build step and no workflow,
+because the files you edit are the files that ship. Push to `main` and the site updates.
