@@ -1,0 +1,15 @@
+{
+  "name": "album-lite",
+  "version": "0.1.0",
+  "description": "Photo album designer: import, auto-layout spreads, tweak, export print-ready PDF. Runs as a plain file:// page or as an Electron app.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Album Lite</title>
+  <link rel="stylesheet" href="style.css" />
+  <style id="pagerule"></style>
+</head>
+<body>
+  <header id="toolbar" class="no-print">
+    <strong>Album Lite</strong>
+    <label>Size <select id="size"></select></label>
+    <label>Photos / spread <select id="perSpread"></select></label>
+    <label title="Extra image area beyond the trim edge, required by most print labs">
+      Bleed in <input id="bleed" type="number" step="0.0625" min="0" max="0.5" />
+    </label>
+    <label title="Space between photos">
+      Gutter in <input id="gutter" type="number" step="0.05" min="0" max="1" />
+    </label>
+    <span class="spacer"></span>
+    <button id="import">Import photos…</button>
+    <button id="auto">Auto-layout</button>
+    <button id="export">Export PDF</button>
+    <button id="clear" class="danger">Clear</button>
+    <input id="file" type="file" accept="image/*" multiple hidden />
+  </header>
+
+  <aside id="tray" class="no-print" aria-label="Imported photos">
+    <p id="trayEmpty">Import photos to begin. Drag a thumbnail onto any slot to replace it.</p>
+    <div id="thumbs"></div>
+  </aside>
+
+  <main id="sheets"></main>
+  <aside id="outline" class="no-print" aria-label="Spread order"></aside>
+  <div id="status" class="no-print" role="status" aria-live="polite"></div>
+
+  <script src="layout.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
